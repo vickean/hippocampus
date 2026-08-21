@@ -17,7 +17,7 @@ wrangler d1 migrations apply hippocampus-db --local
 ## Deploy
 
 ```bash
-pnpm deploy                             # wrangler pages deploy
+pnpm pages:deploy                       # wrangler pages deploy
 ```
 
 ## Tests
