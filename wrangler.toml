@@ -6,6 +6,7 @@ pages_build_output_dir = "./dist"
 binding = "DB"
 database_name = "hippocampus-db"
 database_id = "REPLACE_WITH_ID_AFTER_WRANGLER_D1_CREATE"
+migrations_dir = "worker/migrations"
 
 [vars]
 ALLOWED_ORIGIN = "http://localhost:4321"
