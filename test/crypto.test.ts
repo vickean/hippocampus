@@ -16,13 +16,8 @@ describe('crypto', () => {
   it('V1_PARAMS has correct values', () => {
     expect(V1_PARAMS).toEqual({
       version: 1,
-      pbkdf2Algorithm: 'PBKDF2',
-      pbkdf2Hash: 'SHA-256',
-      pbkdf2Iterations: 600000,
-      saltBytes: 16,
-      aesAlgorithm: 'AES-GCM',
-      keyBytes: 32,
-      ivBytes: 12,
+      kdf: { algo: 'PBKDF2', hash: 'SHA-256', iterations: 600000, saltBytes: 16 },
+      cipher: { algo: 'AES-GCM', keyBytes: 32, ivBytes: 12 },
     });
   });
 

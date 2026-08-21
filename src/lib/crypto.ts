@@ -1,16 +1,9 @@
-import { webcrypto as crypto } from 'node:crypto';
-
-const subtle = crypto.subtle;
+const subtle = globalThis.crypto.subtle;
 
 export const V1_PARAMS = {
   version: 1,
-  pbkdf2Algorithm: 'PBKDF2',
-  pbkdf2Hash: 'SHA-256',
-  pbkdf2Iterations: 600000,
-  saltBytes: 16,
-  aesAlgorithm: 'AES-GCM',
-  keyBytes: 32,
-  ivBytes: 12,
+  kdf: { algo: 'PBKDF2', hash: 'SHA-256', iterations: 600_000, saltBytes: 16 },
+  cipher: { algo: 'AES-GCM', keyBytes: 32, ivBytes: 12 },
 } as const;
 
 export interface EncryptedSecretsBlob {
@@ -22,125 +15,105 @@ export interface EncryptedSecretsBlob {
   ct: string;
 }
 
-function toBase64(buffer: ArrayBuffer): string {
-  return Buffer.from(buffer).toString('base64');
+function bufToB64(buf: ArrayBuffer | Uint8Array): string {
+  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  let s = '';
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s);
 }
 
-function fromBase64(base64: string): ArrayBuffer {
-  const buffer = Buffer.from(base64, 'base64');
-  return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+function b64ToBuf(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
 }
 
-function randomBytes(n: number): ArrayBuffer {
-  const buffer = new Uint8Array(n);
-  crypto.getRandomValues(buffer);
-  return buffer.buffer;
+function randomBytes(n: number): Uint8Array {
+  const buf = new Uint8Array(n);
+  crypto.getRandomValues(buf);
+  return buf;
 }
 
 export function generateRecoveryKey(): string {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+  const bytes = randomBytes(32);
+  return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-export async function deriveKek(
-  passphrase: string,
-  salt: ArrayBuffer
-): Promise<CryptoKey> {
-  const encoder = new TextEncoder();
-  const keyMaterial = await subtle.importKey(
+export async function deriveKek(passphrase: string, salt: Uint8Array): Promise<CryptoKey> {
+  const enc = new TextEncoder();
+  const baseKey = await subtle.importKey(
     'raw',
-    encoder.encode(passphrase),
+    enc.encode(passphrase),
     'PBKDF2',
     false,
     ['deriveKey']
   );
-
   return subtle.deriveKey(
     {
       name: 'PBKDF2',
-      salt,
-      iterations: V1_PARAMS.pbkdf2Iterations,
-      hash: V1_PARAMS.pbkdf2Hash,
+      hash: V1_PARAMS.kdf.hash,
+      salt: salt as BufferSource,
+      iterations: V1_PARAMS.kdf.iterations,
     },
-    keyMaterial,
-    { name: V1_PARAMS.aesAlgorithm, length: V1_PARAMS.keyBytes * 8 },
-    true,
-    ['wrapKey', 'unwrapKey']
+    baseKey,
+    { name: V1_PARAMS.cipher.algo, length: V1_PARAMS.cipher.keyBytes * 8 },
+    false,
+    ['wrapKey', 'unwrapKey', 'encrypt', 'decrypt']
   );
 }
 
 export async function generateDek(): Promise<CryptoKey> {
   return subtle.generateKey(
-    { name: V1_PARAMS.aesAlgorithm, length: V1_PARAMS.keyBytes * 8 },
+    { name: V1_PARAMS.cipher.algo, length: V1_PARAMS.cipher.keyBytes * 8 },
     true,
     ['encrypt', 'decrypt']
   );
 }
 
-export async function wrapDek(
-  dek: CryptoKey,
-  kek: CryptoKey
-): Promise<ArrayBuffer> {
-  const iv = randomBytes(V1_PARAMS.ivBytes);
-  const wrappedKey = await subtle.wrapKey('raw', dek, kek, {
-    name: V1_PARAMS.aesAlgorithm,
-    iv: new Uint8Array(iv),
-  });
-
-  const result = new Uint8Array(iv.byteLength + wrappedKey.byteLength);
-  result.set(new Uint8Array(iv), 0);
-  result.set(new Uint8Array(wrappedKey), iv.byteLength);
+export async function wrapDek(dek: CryptoKey, kek: CryptoKey): Promise<ArrayBuffer> {
+  const iv = randomBytes(V1_PARAMS.cipher.ivBytes);
+  const wrapped = await subtle.wrapKey('raw', dek, kek, { name: V1_PARAMS.cipher.algo, iv: iv as BufferSource });
+  const result = new Uint8Array(iv.byteLength + wrapped.byteLength);
+  result.set(iv, 0);
+  result.set(new Uint8Array(wrapped), iv.byteLength);
   return result.buffer;
 }
 
-export async function unwrapDek(
-  wrapped: ArrayBuffer,
-  kek: CryptoKey
-): Promise<CryptoKey> {
-  const wrappedArray = new Uint8Array(wrapped);
-  const iv = wrappedArray.slice(0, V1_PARAMS.ivBytes);
-  const encryptedKey = wrappedArray.slice(V1_PARAMS.ivBytes);
-
+export async function unwrapDek(wrapped: ArrayBuffer, kek: CryptoKey): Promise<CryptoKey> {
+  const all = new Uint8Array(wrapped);
+  const iv = all.slice(0, V1_PARAMS.cipher.ivBytes);
+  const ciphertext = all.slice(V1_PARAMS.cipher.ivBytes);
   return subtle.unwrapKey(
     'raw',
-    encryptedKey,
+    ciphertext,
     kek,
-    { name: V1_PARAMS.aesAlgorithm, iv },
-    { name: V1_PARAMS.aesAlgorithm, length: V1_PARAMS.keyBytes * 8 },
+    { name: V1_PARAMS.cipher.algo, iv },
+    { name: V1_PARAMS.cipher.algo, length: V1_PARAMS.cipher.keyBytes * 8 },
     true,
     ['encrypt', 'decrypt']
   );
 }
 
-async function tryBoth(
+async function tryUnwrap(
   blob: EncryptedSecretsBlob,
   passphraseOrRecoveryKey: string,
-  attempt: 'pass' | 'rec'
-): Promise<string> {
-  const salt = fromBase64(blob.salt);
-  const iv = fromBase64(blob.iv);
-  const ciphertext = fromBase64(blob.ct);
-
-  let wrappedDek: string;
-  if (attempt === 'pass') {
-    wrappedDek = blob.wrapped_dek_pass;
-  } else {
-    wrappedDek = blob.wrapped_dek_rec;
-  }
-
+  wrappedKeyB64: string
+): Promise<CryptoKey> {
+  const salt = b64ToBuf(blob.salt);
   const kek = await deriveKek(passphraseOrRecoveryKey, salt);
-  const dek = await unwrapDek(fromBase64(wrappedDek), kek);
-
-  const decrypted = await subtle.decrypt(
-    { name: V1_PARAMS.aesAlgorithm, iv: new Uint8Array(iv) },
-    dek,
-    ciphertext
+  const wrapped = b64ToBuf(wrappedKeyB64);
+  const iv = wrapped.slice(0, V1_PARAMS.cipher.ivBytes);
+  const ciphertext = wrapped.slice(V1_PARAMS.cipher.ivBytes);
+  return subtle.unwrapKey(
+    'raw',
+    ciphertext,
+    kek,
+    { name: V1_PARAMS.cipher.algo, iv },
+    { name: V1_PARAMS.cipher.algo, length: V1_PARAMS.cipher.keyBytes * 8 },
+    false,
+    ['encrypt', 'decrypt']
   );
-
-  return new TextDecoder().decode(decrypted);
 }
 
 export async function encryptSecrets(
@@ -148,32 +121,25 @@ export async function encryptSecrets(
   passphrase: string,
   recoveryKey: string
 ): Promise<EncryptedSecretsBlob> {
-  const salt = randomBytes(V1_PARAMS.saltBytes);
-  const encoder = new TextEncoder();
-  const plaintextBuffer = encoder.encode(plaintext);
-
+  const salt = randomBytes(V1_PARAMS.kdf.saltBytes);
   const kekPass = await deriveKek(passphrase, salt);
   const kekRec = await deriveKek(recoveryKey, salt);
-
   const dek = await generateDek();
-
-  const wrappedDekPass = await wrapDek(dek, kekPass);
-  const wrappedDekRec = await wrapDek(dek, kekRec);
-
-  const iv = randomBytes(V1_PARAMS.ivBytes);
-  const ciphertext = await subtle.encrypt(
-    { name: V1_PARAMS.aesAlgorithm, iv: new Uint8Array(iv) },
+  const wrappedPass = await wrapDek(dek, kekPass);
+  const wrappedRec = await wrapDek(dek, kekRec);
+  const iv = randomBytes(V1_PARAMS.cipher.ivBytes);
+  const ct = await subtle.encrypt(
+    { name: V1_PARAMS.cipher.algo, iv: iv as BufferSource },
     dek,
-    plaintextBuffer
+    new TextEncoder().encode(plaintext)
   );
-
   return {
     v: V1_PARAMS.version,
-    salt: toBase64(salt),
-    wrapped_dek_pass: toBase64(wrappedDekPass),
-    wrapped_dek_rec: toBase64(wrappedDekRec),
-    iv: toBase64(iv),
-    ct: toBase64(ciphertext),
+    salt: bufToB64(salt),
+    wrapped_dek_pass: bufToB64(wrappedPass),
+    wrapped_dek_rec: bufToB64(wrappedRec),
+    iv: bufToB64(iv),
+    ct: bufToB64(ct),
   };
 }
 
@@ -181,17 +147,25 @@ export async function decryptSecrets(
   blob: EncryptedSecretsBlob,
   passphraseOrRecoveryKey: string
 ): Promise<string> {
-  try {
-    return await tryBoth(blob, passphraseOrRecoveryKey, 'pass');
-  } catch {
-    return await tryBoth(blob, passphraseOrRecoveryKey, 'rec');
+  if (blob.v !== V1_PARAMS.version) {
+    throw new Error(`Unsupported blob version: ${blob.v}`);
   }
+  let dek: CryptoKey;
+  try {
+    dek = await tryUnwrap(blob, passphraseOrRecoveryKey, blob.wrapped_dek_pass);
+  } catch {
+    dek = await tryUnwrap(blob, passphraseOrRecoveryKey, blob.wrapped_dek_rec);
+  }
+  const ct = b64ToBuf(blob.ct);
+  const iv = b64ToBuf(blob.iv);
+  const pt = await subtle.decrypt({ name: V1_PARAMS.cipher.algo, iv: iv as BufferSource }, dek, ct as BufferSource);
+  return new TextDecoder().decode(pt);
 }
 
 export function encryptBlobToString(blob: EncryptedSecretsBlob): string {
-  return Buffer.from(JSON.stringify(blob)).toString('base64');
+  return JSON.stringify(blob);
 }
 
 export function decryptBlobFromString(s: string): EncryptedSecretsBlob {
-  return JSON.parse(Buffer.from(s, 'base64').toString('utf-8'));
+  return JSON.parse(s) as EncryptedSecretsBlob;
 }
