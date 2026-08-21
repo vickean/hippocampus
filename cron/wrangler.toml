@@ -1,0 +1,16 @@
+name = "hippocampus-cron"
+compatibility_date = "2024-09-01"
+main = "src/index.ts"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "hippocampus-db"
+database_id = "REPLACE_WITH_ID_AFTER_WRANGLER_D1_CREATE"
+migrations_dir = "../worker/migrations"
+
+[[r2_buckets]]
+binding = "BACKUPS"
+bucket_name = "hippocampus-backups"
+
+[triggers]
+crons = ["0 3 * * *"]
