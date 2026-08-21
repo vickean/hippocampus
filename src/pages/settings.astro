@@ -1,0 +1,8 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { SettingsForm } from '../components/SettingsForm';
+---
+<BaseLayout title="Settings — Hippocampus">
+  <h1 class="t-2xl" style="margin-bottom: var(--space-4)">Settings</h1>
+  <SettingsForm client:load />
+</BaseLayout>

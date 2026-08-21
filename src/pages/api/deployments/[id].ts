@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro';
-import { getDb } from '~/../worker/db';
-import { deployments } from '~/../worker/schema';
+import { getDb } from '../../../../worker/db';
+import { deployments } from '../../../../worker/schema';
 import { DeploymentUpdateSchema } from '~/lib/deployment';
 import { isAuthorized } from '~/lib/auth';
 import { eq } from 'drizzle-orm';

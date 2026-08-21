@@ -1,0 +1,8 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { DeploymentDetail } from '../../components/DeploymentDetail';
+const id = parseInt(Astro.params.id ?? '0', 10);
+---
+<BaseLayout title={`Deployment ${id} — Hippocampus`}>
+  <DeploymentDetail id={id} client:load />
+</BaseLayout>

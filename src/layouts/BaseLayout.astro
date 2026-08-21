@@ -1,0 +1,25 @@
+---
+import '../styles/global.css';
+interface Props { title?: string; }
+const { title = 'Hippocampus' } = Astro.props;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+  </head>
+  <body>
+    <nav class="nav">
+      <div>
+        <a href="/" style="font-weight:600">Hippocampus</a>
+        <a href="/deployments/new">+ New</a>
+        <a href="/settings">Settings</a>
+      </div>
+    </nav>
+    <main class="container">
+      <slot />
+    </main>
+  </body>
+</html>

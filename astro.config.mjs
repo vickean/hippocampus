@@ -8,4 +8,11 @@ export default defineConfig({
     platformProxy: { enabled: true },
   }),
   integrations: [preact()],
+  vite: {
+    resolve: {
+      alias: {
+        '~': new URL('./src/', import.meta.url).pathname,
+      },
+    },
+  },
 });

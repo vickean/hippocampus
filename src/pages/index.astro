@@ -1,6 +1,8 @@
 ---
-// Real implementation in Task 9
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { DeploymentTable } from '../components/DeploymentTable';
 ---
-<html>
-  <body><h1>Hippocampus</h1><p>Bootstrapped.</p></body>
-</html>
+<BaseLayout title="Hippocampus — Dashboard">
+  <h1 class="t-2xl" style="margin-bottom: var(--space-4)">Deployments</h1>
+  <DeploymentTable client:load />
+</BaseLayout>
